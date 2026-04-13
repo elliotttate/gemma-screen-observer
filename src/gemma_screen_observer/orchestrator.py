@@ -189,6 +189,7 @@ class Orchestrator:
     @staticmethod
     def _save_frame(frame: Frame, path: Path) -> None:
         """Save a frame to disk as JPEG."""
+        path.parent.mkdir(parents=True, exist_ok=True)
         rgb = frame.image.convert("RGB") if frame.image.mode != "RGB" else frame.image
         rgb.save(path, format="JPEG", quality=90)
 
