@@ -1,0 +1,37 @@
+# Gemma Screen Observer Configuration
+# Copy this to config.toml and adjust as needed.
+
+[capture]
+interval = 1.0          # Seconds between screen captures
+monitor = "primary"     # "all", "primary", or 1-based monitor index. Ignored when targeting a window.
+
+# Window targeting — enables background capture via PrintWindow (Windows only).
+# The game window can be minimized or behind other windows and still be captured.
+# window_title = "Slay the Spire"   # Match window by title substring (case-insensitive)
+# process_name = "SlayTheSpire"     # Match window by process name (without .exe)
+# window_index = 1                  # If multiple windows match, pick which one (1-based)
+
+# region = [0, 0, 1920, 1080]  # Optional: capture specific region (left, top, width, height)
+resize = [1280, 720]           # Resize frames before sending to model
+max_image_size_kb = 950        # Max image size for MCP transfer; progressively compressed
+save_screenshots = false
+screenshot_dir = "screenshots"
+
+[model]
+backend = "ollama"                      # "ollama" for local, "google_ai" for cloud
+model_name = "gemma4"                   # Model identifier
+endpoint = "http://localhost:11434"     # Ollama API endpoint
+# api_key = "your-google-ai-key"       # For google_ai backend (or set GOOGLE_API_KEY env var)
+temperature = 0.1                       # Low temperature for consistent descriptions
+max_tokens = 2048
+timeout = 30.0
+
+[log]
+max_entries = 5000      # Max change log entries in memory
+persist = true          # Write log to disk
+output_file = "game_log.jsonl"
+log_screenshots = false # Include base64 screenshots in log (large!)
+
+[mcp]
+name = "gemma-screen-observer"
+transport = "stdio"
