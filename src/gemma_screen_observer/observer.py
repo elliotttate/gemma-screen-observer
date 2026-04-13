@@ -255,9 +255,10 @@ def _extract_json(text: str) -> dict:
     # Try to repair truncated JSON — E2B often gets cut off before closing braces
     if start is not None and depth > 0:
         truncated = text[start:]
-        # Close any open strings (find last unmatched quote)
+        # Track nesting to know exactly what needs closing
         in_string = False
         escaped = False
+        stack = []  # track open brackets/braces
         for ch in truncated:
             if escaped:
                 escaped = False
@@ -267,10 +268,19 @@ def _extract_json(text: str) -> dict:
                 continue
             if ch == '"':
                 in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                stack.append("}")
+            elif ch == "[":
+                stack.append("]")
+            elif ch in ("}", "]") and stack:
+                stack.pop()
         if in_string:
             truncated += '"'
-        # Close open arrays and objects
-        truncated += "]" * truncated.count("[") + "}" * depth
+        # Close all open brackets/braces in reverse order
+        truncated += "".join(reversed(stack))
         try:
             result = json.loads(truncated)
             logger.debug("Recovered truncated JSON response")
@@ -279,10 +289,10 @@ def _extract_json(text: str) -> dict:
             pass
 
     # Last resort: extract key fields with regex
+    import re
     scene = "unknown"
     description = text[:200]
     text_on_screen = []
-    import re
     m = re.search(r'"scene"\s*:\s*"([^"]+)"', text)
     if m:
         scene = m.group(1)

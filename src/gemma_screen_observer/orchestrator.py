@@ -202,10 +202,17 @@ class Orchestrator:
         loop = asyncio.get_running_loop()
         frame = await loop.run_in_executor(None, self.capturer.capture)
 
+        # Save the frame to disk
+        frame_path = self._frames_dir / f"frame_{frame.frame_number:06d}.jpg"
+        await loop.run_in_executor(None, self._save_frame, frame, frame_path)
+        self._saved_frames[frame.frame_number] = frame_path
+
         async with self._lock:
             previous = self._last_analyzed_frame
             analysis = await self.observer.analyze(frame)
-            snapshot = self.state.update_state(frame.frame_number, analysis)
+            snapshot = self.state.update_state(
+                frame.frame_number, analysis, frame_path=str(frame_path)
+            )
 
             changes_data = None
             if previous is not None:
@@ -219,7 +226,9 @@ class Orchestrator:
             "snapshot": snapshot.to_dict(),
             "changes": changes_data,
             "frame_number": frame.frame_number,
+            "frame_path": str(frame_path),
             "source": frame.source,
+            "hint": "Use analyze_frame(frame_number, question) to ask specific questions about this screenshot.",
         }
 
     async def query_screen(self, question: str) -> str:

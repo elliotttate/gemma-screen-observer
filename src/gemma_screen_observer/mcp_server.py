@@ -37,9 +37,13 @@ def create_server(config: ObserverConfig) -> FastMCP:
         config.mcp.name,
         instructions=(
             "Game screen observer powered by Gemma 4 vision. "
-            "Captures screenshots (including minimized/background windows on Windows) "
-            "and uses Gemma 4 to describe game state and detect changes over time. "
-            "Use start_observation to begin, then query state and changes as needed."
+            "Captures game screenshots and uses AI to describe what's on screen. "
+            "IMPORTANT: Every visual change is saved as a JPEG screenshot to disk. "
+            "Use list_saved_frames to see all saved screenshots, and analyze_frame(frame_number, question) "
+            "to re-examine any saved screenshot with a specific question. "
+            "Use take_snapshot for an immediate capture+analysis. "
+            "Use query_screen(question) to ask about the current screen. "
+            "The game_log.jsonl file contains timestamped entries with frame_path fields pointing to saved screenshots."
         ),
     )
 
