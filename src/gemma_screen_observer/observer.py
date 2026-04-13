@@ -15,56 +15,13 @@ from .config import ModelConfig
 logger = logging.getLogger(__name__)
 
 ANALYSIS_SYSTEM_PROMPT = """\
-You are a game screen analyzer for automated testing. Analyze the screenshot and produce a JSON object describing the current game state. Be precise and consistent.
-
-Output ONLY valid JSON with this structure:
-{
-  "scene": "<scene type: menu, gameplay, combat, dialogue, loading, cutscene, inventory, map, settings, other>",
-  "description": "<1-2 sentence description of what is visible>",
-  "elements": {
-    "player": {"visible": true/false, "health": "<if visible>", "position": "<region of screen>", "action": "<what player is doing>"},
-    "enemies": [{"type": "<enemy type>", "health": "<if visible>", "position": "<region>", "action": "<what doing>"}],
-    "npcs": [{"type": "<npc type>", "position": "<region>", "action": "<what doing>"}],
-    "ui": {
-      "health_bar": "<value or null>",
-      "mana_bar": "<value or null>",
-      "stamina_bar": "<value or null>",
-      "score": "<value or null>",
-      "level": "<value or null>",
-      "minimap": "<visible/hidden>",
-      "dialog_box": "<text if visible, else null>",
-      "menu_items": ["<visible menu items>"],
-      "notifications": ["<any on-screen notifications>"]
-    },
-    "environment": {"location": "<where the scene takes place>", "time_of_day": "<if determinable>", "weather": "<if determinable>"}
-  },
-  "text_on_screen": ["<any readable text>"]
-}
-
-Only include fields that are clearly visible. Use null for fields you cannot determine."""
+Analyze this game screenshot. Output ONLY a JSON object:
+{"scene":"<menu|gameplay|combat|loading|cutscene|settings|other>","description":"<1 sentence>","ui":{"health":null,"score":null,"position":null,"lap":null,"time":null,"menu_items":[]},"text_on_screen":["<readable text>"]}"""
 
 CHANGE_DETECTION_PROMPT = """\
-You are a game screen change detector for automated testing. Compare these two consecutive screenshots and describe what changed.
-
-Output ONLY valid JSON with this structure:
-{
-  "has_changes": true/false,
-  "scene_changed": true/false,
-  "previous_scene": "<scene type>",
-  "current_scene": "<scene type>",
-  "changes": [
-    {
-      "category": "<ui|player|enemy|environment|scene|text|animation>",
-      "element": "<what changed>",
-      "from": "<previous state or null if new>",
-      "to": "<current state>",
-      "significance": "<low|medium|high|critical>"
-    }
-  ],
-  "summary": "<1 sentence summary of all changes>"
-}
-
-Focus on meaningful game state changes, not minor visual noise like particle effects or animation frames."""
+Compare these two game screenshots. Output ONLY a JSON object:
+{"has_changes":true,"changes":[{"category":"<ui|scene|text|player|environment>","element":"<what>","from":"<old>","to":"<new>","significance":"<low|medium|high|critical>"}],"summary":"<1 sentence>"}
+If nothing meaningful changed, output: {"has_changes":false,"changes":[],"summary":"no change"}"""
 
 QUERY_PROMPT_TEMPLATE = """\
 You are a game screen analyzer. Look at this screenshot and answer the following question precisely.
@@ -295,8 +252,49 @@ def _extract_json(text: str) -> dict:
                 except json.JSONDecodeError:
                     start = None
 
-    logger.warning("Could not extract JSON from model response, returning raw text as description")
-    return {"scene": "unknown", "description": text, "elements": {}, "text_on_screen": []}
+    # Try to repair truncated JSON — E2B often gets cut off before closing braces
+    if start is not None and depth > 0:
+        truncated = text[start:]
+        # Close any open strings (find last unmatched quote)
+        in_string = False
+        escaped = False
+        for ch in truncated:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+        if in_string:
+            truncated += '"'
+        # Close open arrays and objects
+        truncated += "]" * truncated.count("[") + "}" * depth
+        try:
+            result = json.loads(truncated)
+            logger.debug("Recovered truncated JSON response")
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    # Last resort: extract key fields with regex
+    scene = "unknown"
+    description = text[:200]
+    text_on_screen = []
+    import re
+    m = re.search(r'"scene"\s*:\s*"([^"]+)"', text)
+    if m:
+        scene = m.group(1)
+    m = re.search(r'"description"\s*:\s*"([^"]*(?:\\.[^"]*)*)"', text)
+    if m:
+        description = m.group(1).replace('\\"', '"').replace("\\n", " ")
+    for m in re.finditer(r'"text_on_screen"\s*:\s*\[([^\]]*)', text):
+        for item in re.findall(r'"([^"]+)"', m.group(1)):
+            text_on_screen.append(item)
+
+    logger.debug("Extracted fields via regex fallback: scene=%s", scene)
+    return {"scene": scene, "description": description, "elements": {}, "text_on_screen": text_on_screen}
 
 
 class ScreenObserver:
