@@ -298,6 +298,52 @@ def capture_window(hwnd: int) -> Image.Image:
         user32.ReleaseDC(hwnd, hwnd_dc)
 
 
+def capture_window_desktop(hwnd: int) -> Image.Image:
+    """Capture a window by grabbing its screen region from the desktop.
+
+    Unlike PrintWindow, this captures the DWM-composited output which includes
+    DirectX/Vulkan/OpenGL rendered content. The window must be visible (not
+    minimized) for this to work.
+    """
+    if not _win32_ready:
+        raise RuntimeError("Window desktop capture requires Windows")
+
+    rect = wt.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    left, top = rect.left, rect.top
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Window has invalid dimensions: {width}x{height}")
+
+    with mss.mss() as sct:
+        region = {"left": left, "top": top, "width": width, "height": height}
+        screenshot = sct.grab(region)
+        return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+
+def _is_blank_frame(image: Image.Image, threshold: float = 0.95) -> bool:
+    """Detect if a captured frame is blank (nearly all one color).
+
+    PrintWindow returns blank white/black frames for DirectX/Vulkan windows.
+    """
+    w, h = image.size
+    # Sample a grid of pixels instead of checking every pixel
+    sample_count = 0
+    dominant_count = 0
+    step = max(1, w * h // 2000)  # ~2000 samples
+
+    pixels = image.getdata()
+    for i in range(0, len(pixels), step):
+        r, g, b = pixels[i][:3]
+        sample_count += 1
+        if (r > 250 and g > 250 and b > 250) or (r < 5 and g < 5 and b < 5):
+            dominant_count += 1
+
+    return sample_count > 0 and (dominant_count / sample_count) > threshold
+
+
 # ---------------------------------------------------------------------------
 # Monitor capture (cross-platform fallback via mss)
 # ---------------------------------------------------------------------------
@@ -450,14 +496,22 @@ class ScreenCapture:
 
             try:
                 image = capture_window(self._resolved_hwnd)
+                # PrintWindow returns blank frames for DirectX/Vulkan games.
+                # Detect this and fall back to desktop-region capture.
+                if _is_blank_frame(image):
+                    logger.debug("PrintWindow returned blank frame, falling back to desktop capture")
+                    image = capture_window_desktop(self._resolved_hwnd)
             except RuntimeError:
-                # Window may have closed — clear cache and retry once
-                logger.warning("Capture failed, re-resolving window...")
-                self._resolved_hwnd = None
-                self._resolve_window()
-                if self._resolved_hwnd is None:
-                    raise ValueError("Target window no longer available")
-                image = capture_window(self._resolved_hwnd)
+                # Window may have closed or PrintWindow failed — try desktop capture, then re-resolve
+                try:
+                    image = capture_window_desktop(self._resolved_hwnd)
+                except Exception:
+                    logger.warning("Capture failed, re-resolving window...")
+                    self._resolved_hwnd = None
+                    self._resolve_window()
+                    if self._resolved_hwnd is None:
+                        raise ValueError("Target window no longer available")
+                    image = capture_window_desktop(self._resolved_hwnd)
 
             source = f"window:{self._resolved_window.title if self._resolved_window else 'unknown'}"
         else:
