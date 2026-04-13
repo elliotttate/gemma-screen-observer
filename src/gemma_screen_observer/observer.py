@@ -216,12 +216,45 @@ class GoogleAIBackend(VisionBackend):
         await self.client.aclose()
 
 
+class TransformersBackend(VisionBackend):
+    """Direct transformers/Unsloth backend for maximum GPU utilization."""
+
+    def __init__(self, config: ModelConfig):
+        self.config = config
+        self.model_name = config.model_name
+        self.max_tokens = config.max_tokens
+
+    async def analyze_frame(self, frame: Frame, prompt: str) -> str:
+        from .unsloth_backend import analyze_frame
+        return await analyze_frame(
+            frame, prompt,
+            model_name=self.model_name,
+            max_tokens=self.max_tokens,
+            load_in_4bit=True,
+        )
+
+    async def analyze_two_frames(self, prev: Frame, current: Frame, prompt: str) -> str:
+        from .unsloth_backend import analyze_two_frames
+        return await analyze_two_frames(
+            prev, current, prompt,
+            model_name=self.model_name,
+            max_tokens=self.max_tokens,
+            load_in_4bit=True,
+        )
+
+    async def close(self) -> None:
+        from .unsloth_backend import unload_model
+        unload_model()
+
+
 def create_backend(config: ModelConfig) -> VisionBackend:
     """Factory to create the appropriate vision backend."""
     if config.backend == "ollama":
         return OllamaBackend(config)
     elif config.backend == "google_ai":
         return GoogleAIBackend(config)
+    elif config.backend == "transformers":
+        return TransformersBackend(config)
     else:
         raise ValueError(f"Unknown backend: {config.backend}")
 

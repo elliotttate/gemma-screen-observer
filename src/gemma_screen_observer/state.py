@@ -200,6 +200,21 @@ class StateManager:
             "scene_transitions": len(self.get_scene_history()),
         }
 
+    def log_frame_tick(self, frame_number: int, diff_score: float, changed: bool) -> None:
+        """Log a lightweight per-frame tick entry (no LLM analysis, just diff score)."""
+        if self.config.persist and self._log_file:
+            now = time.time()
+            record = {
+                "type": "tick",
+                "timestamp": now,
+                "time": _iso_timestamp(now),
+                "frame_number": frame_number,
+                "diff_score": round(diff_score, 4),
+                "changed": changed,
+            }
+            with self._log_file.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
+
     def clear(self) -> None:
         """Clear all state and history."""
         self._current = None

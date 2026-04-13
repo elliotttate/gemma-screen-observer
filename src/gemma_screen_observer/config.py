@@ -43,6 +43,10 @@ class CaptureConfig(BaseModel):
     resize: tuple[int, int] = Field(
         default=(1280, 720), description="Resize captured frames to this resolution for inference"
     )
+    change_threshold: float = Field(
+        default=0.02, ge=0.0, le=1.0,
+        description="Minimum pixel-diff score (0-1) to trigger LLM analysis. Lower = more sensitive.",
+    )
     max_image_size_kb: int = Field(
         default=950, description="Max image size in KB for MCP transfer. Images are compressed progressively."
     )
@@ -55,8 +59,8 @@ class CaptureConfig(BaseModel):
 class ModelConfig(BaseModel):
     """Gemma 4 model backend settings."""
 
-    backend: Literal["ollama", "google_ai"] = Field(
-        default="ollama", description="Inference backend"
+    backend: Literal["ollama", "google_ai", "transformers"] = Field(
+        default="ollama", description="Inference backend: ollama (local API), google_ai (cloud), transformers (direct CUDA via Unsloth/HF)"
     )
     model_name: str = Field(default="gemma4", description="Model name/identifier")
     endpoint: str = Field(
