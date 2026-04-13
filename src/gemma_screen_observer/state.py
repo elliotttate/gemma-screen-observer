@@ -58,9 +58,10 @@ class StateSnapshot:
     elements: dict
     text_on_screen: list[str]
     raw: dict
+    frame_path: str | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "timestamp": self.timestamp,
             "time": _iso_timestamp(self.timestamp),
             "frame_number": self.frame_number,
@@ -69,6 +70,9 @@ class StateSnapshot:
             "elements": self.elements,
             "text_on_screen": self.text_on_screen,
         }
+        if self.frame_path:
+            d["frame_path"] = self.frame_path
+        return d
 
 
 class StateManager:
@@ -103,7 +107,7 @@ class StateManager:
     def snapshot_count(self) -> int:
         return self._snapshot_count
 
-    def update_state(self, frame_number: int, analysis: dict) -> StateSnapshot:
+    def update_state(self, frame_number: int, analysis: dict, frame_path: str | None = None) -> StateSnapshot:
         """Update the current state from a frame analysis result."""
         self._previous = self._current
 
@@ -115,6 +119,7 @@ class StateManager:
             elements=analysis.get("elements", {}),
             text_on_screen=analysis.get("text_on_screen", []),
             raw=analysis,
+            frame_path=frame_path,
         )
 
         self._current = snapshot
@@ -200,7 +205,7 @@ class StateManager:
             "scene_transitions": len(self.get_scene_history()),
         }
 
-    def log_frame_tick(self, frame_number: int, diff_score: float, changed: bool) -> None:
+    def log_frame_tick(self, frame_number: int, diff_score: float, changed: bool, frame_path: str | None = None) -> None:
         """Log a tick entry only when a visual change was detected."""
         if not changed:
             return
@@ -213,6 +218,8 @@ class StateManager:
                 "frame_number": frame_number,
                 "diff_score": round(diff_score, 4),
             }
+            if frame_path:
+                record["frame_path"] = frame_path
             with self._log_file.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
 

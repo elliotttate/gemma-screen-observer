@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 
 from .capture import Frame, ScreenCapture, enumerate_windows, list_monitors
 from .config import ObserverConfig
@@ -33,6 +34,11 @@ class Orchestrator:
         self.observer = ScreenObserver(config.model)
         self.state = StateManager(config.log)
         self.differ = FrameDiffer(threshold=config.capture.change_threshold)
+
+        # Frame storage directory — saved frames for later LLM lookup
+        self._frames_dir = Path(config.log.output_file).parent / "frames"
+        self._frames_dir.mkdir(parents=True, exist_ok=True)
+        self._saved_frames: dict[int, Path] = {}  # frame_number -> path
 
         self._running = False
         self._task: asyncio.Task | None = None
@@ -124,11 +130,19 @@ class Orchestrator:
         self._avg_diff_ms = (self._avg_diff_ms * 0.9) + (diff.elapsed_ms * 0.1)
 
         # Log every frame to the state manager (lightweight entry)
-        self.state.log_frame_tick(frame.frame_number, diff.score, diff.changed)
+        frame_path_str = None
+        if diff.changed:
+            frame_path_str = str(self._frames_dir / f"frame_{frame.frame_number:06d}.jpg")
+        self.state.log_frame_tick(frame.frame_number, diff.score, diff.changed, frame_path_str)
 
         if diff.changed:
             self._frames_changed += 1
             self._last_frame = frame
+
+            # Save the frame to disk for later lookup
+            frame_path = self._frames_dir / f"frame_{frame.frame_number:06d}.jpg"
+            await loop.run_in_executor(None, self._save_frame, frame, frame_path)
+            self._saved_frames[frame.frame_number] = frame_path
 
             # Tier 2: Queue for LLM analysis (non-blocking)
             if not self._analyzing:
@@ -146,7 +160,11 @@ class Orchestrator:
 
             async with self._lock:
                 analysis = await self.observer.analyze(frame)
-                self.state.update_state(frame.frame_number, analysis)
+                frame_path = self._saved_frames.get(frame.frame_number)
+                self.state.update_state(
+                    frame.frame_number, analysis,
+                    frame_path=str(frame_path) if frame_path else None,
+                )
 
                 # Change detection against last analyzed frame
                 if self._last_analyzed_frame is not None:
@@ -167,6 +185,12 @@ class Orchestrator:
             logger.error("Analysis failed: %s", exc, exc_info=True)
         finally:
             self._analyzing = False
+
+    @staticmethod
+    def _save_frame(frame: Frame, path: Path) -> None:
+        """Save a frame to disk as JPEG."""
+        rgb = frame.image.convert("RGB") if frame.image.mode != "RGB" else frame.image
+        rgb.save(path, format="JPEG", quality=90)
 
     # ------------------------------------------------------------------
     # On-demand actions (called by MCP tools)
@@ -262,6 +286,34 @@ class Orchestrator:
 
     def set_interval(self, interval: float) -> None:
         self.config.capture.interval = max(0.1, min(30.0, interval))
+
+    def get_saved_frame_path(self, frame_number: int) -> Path | None:
+        """Get the file path of a saved frame by number."""
+        return self._saved_frames.get(frame_number)
+
+    def list_saved_frames(self) -> list[dict]:
+        """List all saved frames with their numbers and paths."""
+        return [
+            {"frame_number": num, "path": str(path)}
+            for num, path in sorted(self._saved_frames.items())
+        ]
+
+    async def analyze_saved_frame(self, frame_number: int, question: str | None = None) -> dict:
+        """Re-analyze a previously saved frame, optionally with a custom question."""
+        path = self._saved_frames.get(frame_number)
+        if path is None or not path.exists():
+            return {"error": f"Frame {frame_number} not found"}
+
+        from PIL import Image as PILImage
+        img = PILImage.open(path)
+        frame = Frame(image=img, timestamp=0, frame_number=frame_number, source=f"saved:{path}")
+
+        if question:
+            answer = await self.observer.query(frame, question)
+            return {"frame_number": frame_number, "question": question, "answer": answer, "frame_path": str(path)}
+        else:
+            analysis = await self.observer.analyze(frame)
+            return {"frame_number": frame_number, "analysis": analysis, "frame_path": str(path)}
 
     async def close(self) -> None:
         await self.stop()

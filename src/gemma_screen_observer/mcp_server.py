@@ -198,6 +198,30 @@ def create_server(config: ObserverConfig) -> FastMCP:
         _orchestrator.state.clear()
         return json.dumps({"status": "cleared"})
 
+    @mcp.tool()
+    async def list_saved_frames() -> str:
+        """List all saved frame screenshots from change-detection events.
+
+        Each changed frame is saved to disk so it can be re-analyzed later.
+        Returns frame numbers and their file paths.
+        """
+        frames = _orchestrator.list_saved_frames()
+        return json.dumps({"count": len(frames), "frames": frames}, indent=2)
+
+    @mcp.tool()
+    async def analyze_frame(frame_number: int, question: str | None = None) -> str:
+        """Re-analyze a previously saved frame, or ask a specific question about it.
+
+        Use list_saved_frames to see available frame numbers. Each frame was saved
+        because a visual change was detected at that moment.
+
+        Args:
+            frame_number: The frame number to analyze (from the log or list_saved_frames)
+            question: Optional specific question to ask about the frame. If omitted, does a full analysis.
+        """
+        result = await _orchestrator.analyze_saved_frame(frame_number, question)
+        return json.dumps(result, indent=2)
+
     # ------------------------------------------------------------------
     # Resources
     # ------------------------------------------------------------------
