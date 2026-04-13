@@ -67,7 +67,7 @@ class ModelConfig(BaseModel):
     )
     temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: int = Field(default=2048, ge=256, le=8192, description="Max output tokens")
-    timeout: float = Field(default=30.0, description="Request timeout in seconds")
+    timeout: float = Field(default=120.0, description="Request timeout in seconds (first call loads model into memory, needs extra time)")
 
 
 class LogConfig(BaseModel):

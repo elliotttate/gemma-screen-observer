@@ -24,7 +24,7 @@ endpoint = "http://localhost:11434"     # Ollama API endpoint
 # api_key = "your-google-ai-key"       # For google_ai backend (or set GOOGLE_API_KEY env var)
 temperature = 0.1                       # Low temperature for consistent descriptions
 max_tokens = 2048
-timeout = 30.0
+timeout = 120.0
 
 [log]
 max_entries = 5000      # Max change log entries in memory
